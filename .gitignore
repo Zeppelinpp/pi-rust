@@ -1,0 +1,28 @@
+# Rust build artifacts
+/target/
+**/target/
+
+# Cargo lock file (for libraries, keep for binaries)
+# 如果你这是可执行项目，建议注释掉下面这行保留 Cargo.lock
+# /Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# macOS
+.DS_Store
+
+# Editor backups
+*~
+*.swp
+*.swo
+
+# Debug files
+*.pdb
+*.dSYM/
+
+# Profiling
+*.profdata
+*.profraw
