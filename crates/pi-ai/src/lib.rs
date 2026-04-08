@@ -6,3 +6,6 @@ pub use types::{GenerateOptions, GenerateRequest, GenerateResponse, Usage};
 
 pub mod error;
 pub use error::AIError;
+
+pub mod provider;
+pub use provider::LLMProvider;
