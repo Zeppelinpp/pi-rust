@@ -14,9 +14,11 @@ pi-rust is a Rust port of the pi-mono monorepo, providing modular components for
 ```
 pi-rust/
 ├── crates/
-│   ├── pi-agent-core    # Agent runtime with tool calling & state management
-│   ├── pi-ai            # Unified multi-provider LLM API (OpenAI, Anthropic, etc.)
-│   └── pi-tui           # Terminal UI library with differential rendering
+│   ├── pi-agent-core    # Agent runtime (placeholder)
+│   ├── pi-ai            # Unified multi-provider LLM API
+│   └── pi-tui           # Terminal UI library (placeholder)
+├── docs/
+│   └── pi-ai-usage.md   # Usage examples
 └── src/
     └── main.rs          # Application entry point
 ```
@@ -25,16 +27,21 @@ pi-rust/
 
 | Crate | Description | Original TS Equivalent |
 |-------|-------------|----------------------|
-| `pi-ai` | Unified LLM client with streaming, tool calling, multi-provider support | `@mariozechner/pi-ai` |
+| `pi-ai` | Unified LLM client with multi-provider support | `@mariozechner/pi-ai` |
 | `pi-agent-core` | Stateful agent runtime, event streaming, tool execution | `@mariozechner/pi-agent-core` |
 | `pi-tui` | Terminal UI components (editor, markdown, image display) | `@mariozechner/pi-tui` |
 
-## Features (Planned)
+## Progress
 
 ### pi-ai
-- [ ] Multi-provider LLM API (OpenAI, Anthropic, Google, etc.)
+- [x] `LLMProvider` trait for pluggable providers
+- [x] Core types: `Message`, `Role`, `GenerateRequest`, `GenerateResponse`, `GenerateOptions`, `Usage`
+- [x] `MockProvider` for unit testing
+- [x] `OpenAICompatibleProvider` for OpenAI-compatible endpoints
+- [x] Example usage of `OpenAICompatibleProvider`
+- [ ] Streaming responses
+- [ ] Tool calling
 - [ ] Automatic model discovery and capability detection
-- [ ] Streaming responses with tool calling
 - [ ] Cross-provider handoffs mid-conversation
 - [ ] OAuth support for subscription-based services
 
@@ -51,8 +58,6 @@ pi-rust/
 - [ ] Real-time streaming display
 
 ## Philosophy
-
-Like the original pi-mono, pi-rust follows these principles:
 
 1. **Aggressively Extensible**: Core is minimal, everything else is built on top
 2. **Your Agent, Your Way**: Don't dictate workflow, provide building blocks
@@ -72,16 +77,17 @@ Like the original pi-mono, pi-rust follows these principles:
 cargo build --release
 ```
 
-### Run
-
-```bash
-cargo run
-```
-
 ### Run Tests
 
 ```bash
 cargo test --workspace
+```
+
+### Run the OpenAI-Compatible Example
+
+```bash
+cd crates/pi-ai
+API_KEY=your_api_key BASE_URL=https://api.openai.com MODEL=gpt-4o cargo run --example openai_compatible_demo
 ```
 
 ## Development
@@ -95,12 +101,12 @@ This project uses Cargo workspaces. Each crate in `crates/` is independently ver
 cargo build -p pi-ai
 
 # Test specific crate
-cargo test -p pi-agent-core
+cargo test -p pi-ai
 ```
 
 ### Roadmap
 
-- [ ] Core LLM client (`pi-ai`)
+- [x] Core LLM client trait and OpenAI-compatible provider (`pi-ai`)
 - [ ] Agent runtime with tool system (`pi-agent-core`)
 - [ ] Terminal UI framework (`pi-tui`)
 - [ ] Coding agent CLI (combining all crates)
