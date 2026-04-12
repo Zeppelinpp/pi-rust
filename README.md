@@ -35,7 +35,7 @@ pi-rust/
 
 ### pi-ai
 - [x] `LLMProvider` trait for pluggable providers
-- [x] Core types: `Message`, `Role`, `GenerateRequest`, `GenerateResponse`, `GenerateOptions`, `Usage`
+- [x] Core types: `Message` (User/Assistant/ToolResult), `ContentBlock`, `UserContent`, `StopReason`, `GenerateRequest`, `GenerateResponse`, `GenerateOptions`, `Usage`/`Cost`, `Tool`, `Context`
 - [x] `MockProvider` for unit testing
 - [x] `OpenAICompatibleProvider` for OpenAI-compatible endpoints
 - [x] Example usage of `OpenAICompatibleProvider`

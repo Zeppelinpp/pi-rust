@@ -14,10 +14,7 @@ async fn main() {
 
     let req = GenerateRequest::new(
         "gpt-4o",
-        vec![
-            Message::system("You are a helpful assistant."),
-            Message::user("Say hello in one short sentence."),
-        ],
+        vec![Message::user("Say hello in one short sentence.")],
     )
     .temperature(0.7)
     .max_tokens(64);
