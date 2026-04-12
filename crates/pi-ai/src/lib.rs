@@ -1,5 +1,5 @@
 pub mod message;
-pub use message::{Message, Role};
+pub use message::{ContentBlock, Message, Role, StopReason, UserContent};
 
 pub mod types;
 pub use types::{GenerateOptions, GenerateRequest, GenerateResponse, Usage};
@@ -27,10 +27,7 @@ mod test {
 
         let req = GenerateRequest::new(
             "Mock Model",
-            vec![
-                Message::system("You are a helpful assistant"),
-                Message::user("Who are you?"),
-            ],
+            vec![Message::user("Who are you?")],
         )
         .temperature(0.7)
         .max_tokens(128);
@@ -62,10 +59,7 @@ mod integration_tests {
 
         let req = GenerateRequest::new(
             "qwen-turbo",
-            vec![
-                Message::system("You are a helpful assistant."),
-                Message::user("Say hello in one short sentence."),
-            ],
+            vec![Message::user("Say hello in one short sentence.")],
         )
         .temperature(0.7)
         .max_tokens(64);

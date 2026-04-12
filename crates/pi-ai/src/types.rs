@@ -17,11 +17,39 @@ pub struct GenerateOptions {
     pub stop: Option<Vec<String>>,
 }
 
-#[derive(Debug, Clone)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Cost {
+    pub input: f64,
+    pub output: f64,
+    pub cache_read: f64,
+    pub cache_write: f64,
+    pub total: f64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Usage {
-    pub prompt_tokens: u32,
-    pub completion_tokens: u32,
-    pub total_tokens: u32,
+    pub input: u64,
+    pub output: u64,
+    pub cache_read: u64,
+    pub cache_write: u64,
+    pub total_tokens: u64,
+    pub cost: Cost,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Tool {
+    pub name: String,
+    pub description: String,
+    pub parameters: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Context {
+    pub system_prompt: Option<String>,
+    pub messages: Vec<Message>,
+    pub tools: Option<Vec<Tool>>,
 }
 
 #[derive(Debug, Clone)]

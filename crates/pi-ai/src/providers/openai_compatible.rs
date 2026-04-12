@@ -6,7 +6,7 @@ use crate::{
     Usage,
     config::OpenAICompatibleConfig,
     error::AIError,
-    message::Role,
+    message::{ContentBlock, Message, UserContent},
     provider::LLMProvider,
     types::{GenerateRequest, GenerateResponse},
 };
@@ -69,20 +69,44 @@ struct OpenAIUsage {
     total_tokens: u32,
 }
 
-fn map_role(role: &Role) -> String {
-    match role {
-        Role::System => "system".to_string(),
-        Role::User => "user".to_string(),
-        Role::Assistant => "assistant".to_string(),
+fn message_to_openai(m: Message) -> Option<OpenAIMessage> {
+    match m {
+        Message::User { content, .. } => {
+            let text = match content {
+                UserContent::Plain(s) => s,
+                UserContent::Blocks(blocks) => blocks
+                    .into_iter()
+                    .map(|b| match b {
+                        ContentBlock::Text { text, .. } => text,
+                        _ => String::new(),
+                    })
+                    .collect(),
+            };
+            Some(OpenAIMessage {
+                role: "user".to_string(),
+                content: text,
+            })
+        }
+        Message::Assistant { content, .. } => {
+            let text = content
+                .into_iter()
+                .map(|b| match b {
+                    ContentBlock::Text { text, .. } => text,
+                    _ => String::new(),
+                })
+                .collect::<String>();
+            Some(OpenAIMessage {
+                role: "assistant".to_string(),
+                content: text,
+            })
+        }
+        Message::ToolResult { .. } => None,
     }
 }
 
 #[async_trait]
 impl LLMProvider for OpenAICompatibleProvider {
     async fn generate(&self, req: GenerateRequest) -> Result<GenerateResponse, AIError> {
-        // Err(AIError::Unsupported(
-        //     "openai-compatible generate not implemented yet".to_string(),
-        // ))
         let url = format!(
             "{}/chat/completions",
             self.config.base_url.trim_end_matches('/')
@@ -93,10 +117,7 @@ impl LLMProvider for OpenAICompatibleProvider {
             messages: req
                 .messages
                 .into_iter()
-                .map(|m| OpenAIMessage {
-                    role: map_role(&m.role),
-                    content: m.content,
-                })
+                .filter_map(message_to_openai)
                 .collect(),
             temperature: req.options.temperature,
             max_tokens: req.options.max_tokens,
@@ -144,9 +165,12 @@ impl LLMProvider for OpenAICompatibleProvider {
             model: data.model,
             content: first_choice.message.content,
             usage: data.usage.map(|u| Usage {
-                prompt_tokens: u.prompt_tokens,
-                completion_tokens: u.completion_tokens,
-                total_tokens: u.total_tokens,
+                input: u.prompt_tokens as u64,
+                output: u.completion_tokens as u64,
+                cache_read: 0,
+                cache_write: 0,
+                total_tokens: u.total_tokens as u64,
+                cost: crate::types::Cost::default(),
             }),
             finish_reason: first_choice.finish_reason,
         })

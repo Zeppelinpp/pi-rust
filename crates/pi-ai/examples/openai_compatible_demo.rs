@@ -12,10 +12,7 @@ async fn main() {
 
     let req = GenerateRequest::new(
         model,
-        vec![
-            Message::system("You are a helpful assistant."),
-            Message::user("Introduce yourself briefly."),
-        ],
+        vec![Message::user("Introduce yourself briefly.")],
     );
 
     let resp = provider.generate(req).await.unwrap();
