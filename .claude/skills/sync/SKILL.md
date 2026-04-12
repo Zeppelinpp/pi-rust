@@ -1,5 +1,5 @@
 ---
-name: pi-rust-doc-updater
+name: sync
 description: >
   Update pi-rust project progress tracking and usage documentation after a crate
   or feature is completed. Use when new code has been merged into crates/ or src/,
