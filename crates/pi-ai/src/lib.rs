@@ -43,7 +43,8 @@ mod test {
 #[cfg(test)]
 mod integration_tests {
     use crate::{
-        GenerateRequest, LLMProvider, Message, OpenAICompatibleConfig, OpenAICompatibleProvider,
+        AssistantMessageEvent, ContentBlock, GenerateRequest, LLMProvider, Message, MockProvider,
+        OpenAICompatibleConfig, OpenAICompatibleProvider,
     };
 
     #[tokio::test]
@@ -64,5 +65,46 @@ mod integration_tests {
         let resp = provider.generate(req).await.unwrap();
 
         assert!(!resp.content.trim().is_empty());
+    }
+
+    #[tokio::test]
+    async fn mock_test_stream_response() {
+        let provider = MockProvider;
+        let req = GenerateRequest::new("MockModel", vec![Message::user("Who are you?")])
+            .temperature(0.8)
+            .max_tokens(128);
+
+        let mut stream = provider.stream(req);
+        let mut deltas = 0;
+
+        while let Some(event) = stream.next().await {
+            match event {
+                AssistantMessageEvent::Start { .. } => {}
+                AssistantMessageEvent::TextDelta { delta, .. } => {
+                    assert!(!delta.is_empty());
+                    deltas += 1;
+                }
+                AssistantMessageEvent::Done { message, .. } => {
+                    if let Message::Assistant { content, .. } = message {
+                        let text = content
+                            .iter()
+                            .map(|b| match b {
+                                ContentBlock::Text { text, .. } => text.as_str(),
+                                _ => "",
+                            })
+                            .collect::<Vec<_>>()
+                            .join("");
+                        assert!(text.contains("mock response to:"));
+                        assert!(text.contains("Who are you?"));
+                    } else {
+                        panic!("Expected assistant message");
+                    }
+                    break;
+                }
+                other => panic!("unexpected event: {:?}", other),
+            }
+        }
+
+        assert!(deltas > 0, "expected at least one text delta");
     }
 }

@@ -8,6 +8,7 @@ use crate::{
     error::AIError,
     message::{ContentBlock, Message, UserContent},
     provider::LLMProvider,
+    stream::AssistantMessageEventStream,
     types::{GenerateRequest, GenerateResponse},
 };
 
@@ -174,6 +175,10 @@ impl LLMProvider for OpenAICompatibleProvider {
             }),
             finish_reason: first_choice.finish_reason,
         })
+    }
+
+    fn stream(&self, _req: GenerateRequest) -> AssistantMessageEventStream {
+        unimplemented!("streaming not yet supported for OpenAICompatibleProvider")
     }
 
     fn name(&self) -> &'static str {
