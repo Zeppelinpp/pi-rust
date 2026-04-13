@@ -39,7 +39,7 @@ pi-rust/
 - [x] `MockProvider` for unit testing
 - [x] `OpenAICompatibleProvider` for OpenAI-compatible endpoints
 - [x] Example usage of `OpenAICompatibleProvider`
-- [ ] Streaming responses
+- [x] Streaming responses
 - [ ] Tool calling
 - [ ] Automatic model discovery and capability detection
 - [ ] Cross-provider handoffs mid-conversation
