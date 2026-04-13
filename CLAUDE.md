@@ -40,6 +40,9 @@ cargo run --example <example_name>
 
 # Run the main binary
 cargo run
+
+# Add dependencies via cargo add, don't edit Cargo.toml straightly
+cargo add <crate> -p pi-ai
 ```
 
 This repo is a Cargo workspace (`members = ["crates/*"]`). Use `-p <crate>` to target individual crates inside `crates/`.

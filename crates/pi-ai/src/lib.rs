@@ -17,6 +17,9 @@ pub use providers::openai_compatible::OpenAICompatibleProvider;
 pub mod config;
 pub use config::OpenAICompatibleConfig;
 
+pub mod stream;
+pub use stream::{AssistantMessageEvent, AssistantMessageEventStream, EventStreamHandle};
+
 #[cfg(test)]
 mod test {
     use crate::{GenerateRequest, LLMProvider, Message, MockProvider};
@@ -25,12 +28,9 @@ mod test {
     async fn mock_test_generate_response() {
         let provider = MockProvider;
 
-        let req = GenerateRequest::new(
-            "Mock Model",
-            vec![Message::user("Who are you?")],
-        )
-        .temperature(0.7)
-        .max_tokens(128);
+        let req = GenerateRequest::new("Mock Model", vec![Message::user("Who are you?")])
+            .temperature(0.7)
+            .max_tokens(128);
 
         let resp = provider.generate(req).await.unwrap();
 
@@ -52,10 +52,7 @@ mod integration_tests {
         let api_key = std::env::var("PI_AI_API_KEY").expect("PI_AI_API_KEY not set");
         let base_url = std::env::var("PI_AI_BASE_URL").expect("PI_AI_BASE_URL not set");
 
-        let provider = OpenAICompatibleProvider::new(OpenAICompatibleConfig {
-            api_key,
-            base_url,
-        });
+        let provider = OpenAICompatibleProvider::new(OpenAICompatibleConfig { api_key, base_url });
 
         let req = GenerateRequest::new(
             "qwen-turbo",
