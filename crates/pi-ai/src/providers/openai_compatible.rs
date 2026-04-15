@@ -6,12 +6,13 @@ use crate::{
     Usage,
     config::OpenAICompatibleConfig,
     error::AIError,
-    message::{ContentBlock, Message, UserContent},
+    message::{ContentBlock, Message, StopReason, UserContent},
     provider::LLMProvider,
-    stream::AssistantMessageEventStream,
+    stream::{AssistantMessageEvent, AssistantMessageEventStream},
     types::{GenerateRequest, GenerateResponse},
 };
 
+#[derive(Clone)]
 pub struct OpenAICompatibleProvider {
     config: OpenAICompatibleConfig,
     client: Client,
@@ -177,8 +178,94 @@ impl LLMProvider for OpenAICompatibleProvider {
         })
     }
 
-    fn stream(&self, _req: GenerateRequest) -> AssistantMessageEventStream {
-        unimplemented!("streaming not yet supported for OpenAICompatibleProvider")
+    fn stream(&self, req: GenerateRequest) -> AssistantMessageEventStream {
+        let (stream, handle) = AssistantMessageEventStream::new();
+        let provider = self.clone();
+        let model = req.model.clone();
+
+        tokio::spawn(async move {
+            match provider.generate(req).await {
+                Ok(resp) => {
+                    let usage = resp.usage.clone().unwrap_or_default();
+                    let partial = Message::Assistant {
+                        content: vec![],
+                        api: "openai-compatible".to_string(),
+                        provider: "openai-compatible".to_string(),
+                        model: resp.model.clone(),
+                        response_id: None,
+                        usage: usage.clone(),
+                        stop_reason: StopReason::Stop,
+                        error_message: None,
+                        timestamp: 0,
+                    };
+
+                    handle.push(AssistantMessageEvent::Start {
+                        partial: partial.clone(),
+                    });
+
+                    let delta_partial = Message::Assistant {
+                        content: vec![ContentBlock::Text {
+                            text: resp.content.clone(),
+                            text_signature: None,
+                        }],
+                        api: "openai-compatible".to_string(),
+                        provider: "openai-compatible".to_string(),
+                        model: resp.model.clone(),
+                        response_id: None,
+                        usage: usage.clone(),
+                        stop_reason: StopReason::Stop,
+                        error_message: None,
+                        timestamp: 0,
+                    };
+
+                    handle.push(AssistantMessageEvent::TextDelta {
+                        content_index: 0,
+                        delta: resp.content.clone(),
+                        partial: delta_partial,
+                    });
+
+                    let final_message = Message::Assistant {
+                        content: vec![ContentBlock::Text {
+                            text: resp.content,
+                            text_signature: None,
+                        }],
+                        api: "openai-compatible".to_string(),
+                        provider: "openai-compatible".to_string(),
+                        model: resp.model,
+                        response_id: None,
+                        usage,
+                        stop_reason: StopReason::Stop,
+                        error_message: None,
+                        timestamp: 0,
+                    };
+
+                    handle.push(AssistantMessageEvent::Done {
+                        reason: StopReason::Stop,
+                        message: final_message,
+                    });
+                }
+                Err(err) => {
+                    let error_message = Message::Assistant {
+                        content: vec![],
+                        api: "openai-compatible".to_string(),
+                        provider: "openai-compatible".to_string(),
+                        model,
+                        response_id: None,
+                        usage: Usage::default(),
+                        stop_reason: StopReason::Error,
+                        error_message: Some(err.to_string()),
+                        timestamp: 0,
+                    };
+
+                    handle.push(AssistantMessageEvent::Error {
+                        reason: StopReason::Error,
+                        error: error_message,
+                    });
+                }
+            }
+        });
+
+        stream
     }
 
     fn name(&self) -> &'static str {
