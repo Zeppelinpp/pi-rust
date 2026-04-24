@@ -47,6 +47,18 @@ pub enum StopReason {
     Aborted,
 }
 
+impl StopReason {
+    pub fn to_str(&self) -> &'static str {
+        match self {
+            StopReason::Stop => "stop",
+            StopReason::Length => "length",
+            StopReason::ToolUse => "toolUse",
+            StopReason::Error => "error",
+            StopReason::Aborted => "aborted",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "role")]
 pub enum Message {

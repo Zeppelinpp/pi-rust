@@ -1,23 +1,8 @@
-use crate::message::Message;
-
-#[derive(Debug, Clone)]
-pub struct GenerateRequest {
-    pub model: String,
-    pub messages: Vec<Message>,
-    pub options: GenerateOptions,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct GenerateOptions {
-    pub temperature: Option<f32>,
-    pub max_tokens: Option<u32>,
-    pub top_p: Option<f32>,
-    pub frequency_penalty: Option<f32>,
-    pub presence_penalty: Option<f32>,
-    pub stop: Option<Vec<String>>,
-}
+use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
+
+use crate::message::Message;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Cost {
@@ -58,6 +43,72 @@ pub struct GenerateResponse {
     pub content: String,
     pub usage: Option<Usage>,
     pub finish_reason: Option<String>,
+}
+
+/// Model descriptor aligned with pi-mono's `Model<TApi>`.
+/// `api` determines which provider code path runs; `provider` disambiguates
+/// compat shims when multiple providers share the same API (e.g. OpenRouter
+/// vs Groq both use `"openai-completions"`).
+#[derive(Debug, Clone)]
+pub struct Model {
+    pub id: String,
+    pub name: String,
+    pub api: String,
+    pub provider: String,
+    pub base_url: String,
+    pub reasoning: bool,
+    pub input: Vec<String>,
+    pub cost: Cost,
+    pub context_window: u64,
+    pub max_tokens: u64,
+    pub headers: Option<HashMap<String, String>>,
+}
+
+impl Default for Model {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            api: String::new(),
+            provider: String::new(),
+            base_url: String::new(),
+            reasoning: false,
+            input: vec!["text".into()],
+            cost: Cost::default(),
+            context_window: 0,
+            max_tokens: 0,
+            headers: None,
+        }
+    }
+}
+
+/// Options passed to `ApiProvider::stream()`.
+#[derive(Debug, Clone, Default)]
+pub struct StreamOptions {
+    pub api_key: Option<String>,
+    pub temperature: Option<f32>,
+    pub max_tokens: Option<u32>,
+    pub top_p: Option<f32>,
+    pub frequency_penalty: Option<f32>,
+    pub presence_penalty: Option<f32>,
+    pub stop: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct GenerateRequest {
+    pub model: String,
+    pub messages: Vec<Message>,
+    pub options: GenerateOptions,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct GenerateOptions {
+    pub temperature: Option<f32>,
+    pub max_tokens: Option<u32>,
+    pub top_p: Option<f32>,
+    pub frequency_penalty: Option<f32>,
+    pub presence_penalty: Option<f32>,
+    pub stop: Option<Vec<String>>,
 }
 
 impl GenerateRequest {

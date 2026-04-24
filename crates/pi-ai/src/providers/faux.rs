@@ -1,15 +1,13 @@
-use async_trait::async_trait;
 use std::{
     sync::{Arc, Mutex},
     vec,
 };
 
 use crate::{
-    error::AIError,
-    message::{ContentBlock, Message, StopReason, UserContent},
-    provider::LLMProvider,
+    message::{ContentBlock, Message, StopReason},
+    provider::ApiProvider,
     stream::{AssistantMessageEvent, AssistantMessageEventStream},
-    types::{GenerateRequest, GenerateResponse, Usage},
+    types::{Context, Model, StreamOptions, Usage},
 };
 
 pub enum FauxResponseStep {
@@ -62,8 +60,7 @@ impl FauxProviderHandle {
 
     pub fn get_pending_response_count(&self) -> usize {
         let guard = self.inner.lock().unwrap();
-        let count = guard.responses.len();
-        count
+        guard.responses.len()
     }
 
     pub fn clear_responses(&self) {
@@ -89,39 +86,6 @@ fn extract_assistant_text(message: &Message) -> String {
     }
 }
 
-fn extract_all_text(messages: &[Message]) -> String {
-    messages
-        .iter()
-        .map(|msg| match msg {
-            Message::User { content, .. } => match content {
-                UserContent::Plain(text) => text.clone(),
-                UserContent::Blocks(blocks) => blocks
-                    .iter()
-                    .filter_map(|b| match b {
-                        ContentBlock::Text { text, .. } => Some(text.as_str()),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>()
-                    .join(""),
-            },
-            Message::Assistant { content, .. } => content
-                .iter()
-                .filter_map(|b| match b {
-                    ContentBlock::Text { text, .. } => Some(text.as_str()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join(""),
-            _ => String::new(),
-        })
-        .collect::<Vec<_>>()
-        .join("")
-}
-
-fn estimate_tokens(text: &str) -> u64 {
-    ((text.len() + 3) / 4) as u64
-}
-
 fn split_into_token_deltas(text: &str, token_size: usize) -> Vec<String> {
     text.chars()
         .collect::<Vec<_>>()
@@ -130,44 +94,19 @@ fn split_into_token_deltas(text: &str, token_size: usize) -> Vec<String> {
         .collect()
 }
 
-#[async_trait]
-impl LLMProvider for FauxProvider {
-    async fn generate(&self, req: GenerateRequest) -> Result<GenerateResponse, AIError> {
-        let mut guard = self.inner.lock().unwrap();
-        guard.state.call_count += 1;
-
-        let faux_step = guard.responses.remove(0);
-        drop(guard);
-
-        let message = match faux_step {
-            FauxResponseStep::Static(msg) => msg,
-        };
-
-        let text = extract_assistant_text(&message);
-
-        let input = estimate_tokens(&extract_all_text(&req.messages));
-        let output = estimate_tokens(&text);
-
-        let usage = Usage {
-            input: input,
-            output: output,
-            cache_read: 0,
-            cache_write: 0,
-            total_tokens: input + output,
-            cost: crate::types::Cost::default(),
-        };
-
-        Ok(GenerateResponse {
-            model: req.model,
-            content: text,
-            usage: Some(usage),
-            finish_reason: Some("stop".to_string()),
-        })
+impl ApiProvider for FauxProvider {
+    fn api(&self) -> &'static str {
+        "faux"
     }
 
-    fn stream(&self, req: GenerateRequest) -> AssistantMessageEventStream {
+    fn stream(
+        &self,
+        model: &Model,
+        _context: &Context,
+        _options: StreamOptions,
+    ) -> AssistantMessageEventStream {
         let inner = Arc::clone(&self.inner);
-        let model = req.model.clone();
+        let model_id = model.id.clone();
 
         let (stream, handle) = AssistantMessageEventStream::new();
 
@@ -180,7 +119,7 @@ impl LLMProvider for FauxProvider {
                     content: vec![],
                     api: "faux".to_string(),
                     provider: "faux".to_string(),
-                    model: model.clone(),
+                    model: model_id.clone(),
                     response_id: None,
                     usage: Usage::default(),
                     stop_reason: StopReason::Error,
@@ -208,7 +147,7 @@ impl LLMProvider for FauxProvider {
                 content: vec![],
                 provider: "faux".to_string(),
                 api: "faux".to_string(),
-                model: model.clone(),
+                model: model_id.clone(),
                 response_id: None,
                 usage: crate::Usage::default(),
                 stop_reason: StopReason::Stop,
@@ -232,7 +171,7 @@ impl LLMProvider for FauxProvider {
                     }],
                     provider: "faux".to_string(),
                     api: "faux".to_string(),
-                    model: model.clone(),
+                    model: model_id.clone(),
                     response_id: None,
                     usage: Usage::default(),
                     stop_reason: StopReason::Stop,
@@ -248,12 +187,12 @@ impl LLMProvider for FauxProvider {
 
             let final_message = Message::Assistant {
                 content: vec![ContentBlock::Text {
-                    text: text,
+                    text,
                     text_signature: None,
                 }],
                 provider: "faux".to_string(),
                 api: "faux".to_string(),
-                model: model,
+                model: model_id,
                 response_id: None,
                 usage: crate::Usage::default(),
                 stop_reason: StopReason::Stop,
@@ -267,9 +206,5 @@ impl LLMProvider for FauxProvider {
             });
         });
         stream
-    }
-
-    fn name(&self) -> &'static str {
-        "faux"
     }
 }

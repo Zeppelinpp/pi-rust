@@ -1,15 +1,13 @@
-use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Usage,
     config::OpenAICompatibleConfig,
     error::AIError,
     message::{ContentBlock, Message, StopReason, UserContent},
-    provider::LLMProvider,
+    provider::ApiProvider,
     stream::{AssistantMessageEvent, AssistantMessageEventStream},
-    types::{GenerateRequest, GenerateResponse},
+    types::{Context, GenerateResponse, Model, StreamOptions, Usage},
 };
 
 #[derive(Clone)]
@@ -25,108 +23,27 @@ impl OpenAICompatibleProvider {
             client: Client::new(),
         }
     }
-}
 
-#[derive(Debug, Serialize)]
-struct OpenAICompletionRequest {
-    model: String,
-    messages: Vec<OpenAIMessage>,
-    temperature: Option<f32>,
-    max_tokens: Option<u32>,
-    top_p: Option<f32>,
-    frequency_penalty: Option<f32>,
-    presence_penalty: Option<f32>,
-    stop: Option<Vec<String>>,
-}
-
-#[derive(Debug, Serialize)]
-struct OpenAIMessage {
-    role: String,
-    content: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct OpenAIChatCompletionResponse {
-    model: String,
-    choices: Vec<OpenAIChoice>,
-    usage: Option<OpenAIUsage>,
-}
-
-#[derive(Debug, Deserialize)]
-struct OpenAIChoice {
-    message: OpenAIAssistantMessage,
-    finish_reason: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct OpenAIAssistantMessage {
-    role: String,
-    content: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct OpenAIUsage {
-    prompt_tokens: u32,
-    completion_tokens: u32,
-    total_tokens: u32,
-}
-
-fn message_to_openai(m: Message) -> Option<OpenAIMessage> {
-    match m {
-        Message::User { content, .. } => {
-            let text = match content {
-                UserContent::Plain(s) => s,
-                UserContent::Blocks(blocks) => blocks
-                    .into_iter()
-                    .map(|b| match b {
-                        ContentBlock::Text { text, .. } => text,
-                        _ => String::new(),
-                    })
-                    .collect(),
-            };
-            Some(OpenAIMessage {
-                role: "user".to_string(),
-                content: text,
-            })
-        }
-        Message::Assistant { content, .. } => {
-            let text = content
-                .into_iter()
-                .map(|b| match b {
-                    ContentBlock::Text { text, .. } => text,
-                    _ => String::new(),
-                })
-                .collect::<String>();
-            Some(OpenAIMessage {
-                role: "assistant".to_string(),
-                content: text,
-            })
-        }
-        Message::ToolResult { .. } => None,
-    }
-}
-
-#[async_trait]
-impl LLMProvider for OpenAICompatibleProvider {
-    async fn generate(&self, req: GenerateRequest) -> Result<GenerateResponse, AIError> {
+    pub async fn generate_direct(
+        &self,
+        model: &str,
+        messages: Vec<Message>,
+        options: &StreamOptions,
+    ) -> Result<GenerateResponse, AIError> {
         let url = format!(
             "{}/chat/completions",
             self.config.base_url.trim_end_matches('/')
         );
 
         let body = OpenAICompletionRequest {
-            model: req.model,
-            messages: req
-                .messages
-                .into_iter()
-                .filter_map(message_to_openai)
-                .collect(),
-            temperature: req.options.temperature,
-            max_tokens: req.options.max_tokens,
-            top_p: req.options.top_p,
-            frequency_penalty: req.options.frequency_penalty,
-            presence_penalty: req.options.presence_penalty,
-            stop: req.options.stop,
+            model: model.to_string(),
+            messages: messages.into_iter().filter_map(message_to_openai).collect(),
+            temperature: options.temperature,
+            max_tokens: options.max_tokens,
+            top_p: options.top_p,
+            frequency_penalty: options.frequency_penalty,
+            presence_penalty: options.presence_penalty,
+            stop: options.stop.clone(),
         };
 
         let resp = self
@@ -177,14 +94,107 @@ impl LLMProvider for OpenAICompatibleProvider {
             finish_reason: first_choice.finish_reason,
         })
     }
+}
 
-    fn stream(&self, req: GenerateRequest) -> AssistantMessageEventStream {
+#[derive(Debug, Serialize)]
+struct OpenAICompletionRequest {
+    model: String,
+    messages: Vec<OpenAIMessage>,
+    temperature: Option<f32>,
+    max_tokens: Option<u32>,
+    top_p: Option<f32>,
+    frequency_penalty: Option<f32>,
+    presence_penalty: Option<f32>,
+    stop: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize)]
+struct OpenAIMessage {
+    role: String,
+    content: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIChatCompletionResponse {
+    model: String,
+    choices: Vec<OpenAIChoice>,
+    usage: Option<OpenAIUsage>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIChoice {
+    message: OpenAIAssistantMessage,
+    finish_reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIAssistantMessage {
+    content: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIUsage {
+    prompt_tokens: u32,
+    completion_tokens: u32,
+    total_tokens: u32,
+}
+
+fn message_to_openai(m: Message) -> Option<OpenAIMessage> {
+    match m {
+        Message::User { content, .. } => {
+            let text = match content {
+                UserContent::Plain(s) => s,
+                UserContent::Blocks(blocks) => blocks
+                    .into_iter()
+                    .map(|b| match b {
+                        ContentBlock::Text { text, .. } => text,
+                        _ => String::new(),
+                    })
+                    .collect(),
+            };
+            Some(OpenAIMessage {
+                role: "user".to_string(),
+                content: text,
+            })
+        }
+        Message::Assistant { content, .. } => {
+            let text = content
+                .into_iter()
+                .map(|b| match b {
+                    ContentBlock::Text { text, .. } => text,
+                    _ => String::new(),
+                })
+                .collect::<String>();
+            Some(OpenAIMessage {
+                role: "assistant".to_string(),
+                content: text,
+            })
+        }
+        Message::ToolResult { .. } => None,
+    }
+}
+
+impl ApiProvider for OpenAICompatibleProvider {
+    fn api(&self) -> &'static str {
+        "openai-completions"
+    }
+
+    fn stream(
+        &self,
+        model: &Model,
+        context: &Context,
+        options: StreamOptions,
+    ) -> AssistantMessageEventStream {
         let (stream, handle) = AssistantMessageEventStream::new();
         let provider = self.clone();
-        let model = req.model.clone();
+        let model_id = model.id.clone();
+        let messages = context.messages.clone();
 
         tokio::spawn(async move {
-            match provider.generate(req).await {
+            match provider
+                .generate_direct(&model_id, messages, &options)
+                .await
+            {
                 Ok(resp) => {
                     let usage = resp.usage.clone().unwrap_or_default();
                     let partial = Message::Assistant {
@@ -249,7 +259,7 @@ impl LLMProvider for OpenAICompatibleProvider {
                         content: vec![],
                         api: "openai-compatible".to_string(),
                         provider: "openai-compatible".to_string(),
-                        model,
+                        model: model_id,
                         response_id: None,
                         usage: Usage::default(),
                         stop_reason: StopReason::Error,
@@ -266,9 +276,5 @@ impl LLMProvider for OpenAICompatibleProvider {
         });
 
         stream
-    }
-
-    fn name(&self) -> &'static str {
-        "openai-compatible"
     }
 }

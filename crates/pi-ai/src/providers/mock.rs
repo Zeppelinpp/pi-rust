@@ -1,11 +1,8 @@
-use async_trait::async_trait;
-
 use crate::{
-    error::AIError,
     message::{ContentBlock, Message, StopReason, UserContent},
-    provider::LLMProvider,
+    provider::ApiProvider,
     stream::{AssistantMessageEvent, AssistantMessageEventStream},
-    types::{GenerateRequest, GenerateResponse, Usage},
+    types::{Context, Model, StreamOptions, Usage},
 };
 
 pub struct MockProvider;
@@ -24,33 +21,13 @@ fn extract_text_from_user_content(content: &UserContent) -> String {
     }
 }
 
-#[async_trait]
-impl LLMProvider for MockProvider {
-    async fn generate(&self, req: GenerateRequest) -> Result<GenerateResponse, AIError> {
-        let last_user_message = req
-            .messages
-            .iter()
-            .rev()
-            .find(|message| matches!(message, Message::User { .. }))
-            .map(|message| {
-                if let Message::User { content, .. } = message {
-                    extract_text_from_user_content(content)
-                } else {
-                    String::new()
-                }
-            })
-            .unwrap_or_else(|| "empty input".to_string());
-
-        Ok(GenerateResponse {
-            model: req.model,
-            content: format!("mock response to: {}", last_user_message),
-            usage: None,
-            finish_reason: Some("stop".to_string()),
-        })
+impl ApiProvider for MockProvider {
+    fn api(&self) -> &'static str {
+        "mock"
     }
 
-    fn stream(&self, req: GenerateRequest) -> AssistantMessageEventStream {
-        let last_user_message = req
+    fn stream(&self, model: &Model, context: &Context, _options: StreamOptions) -> AssistantMessageEventStream {
+        let last_user_message = context
             .messages
             .iter()
             .rev()
@@ -64,7 +41,7 @@ impl LLMProvider for MockProvider {
             })
             .unwrap_or_else(|| "empty input".to_string());
 
-        let model = req.model.clone();
+        let model_id = model.id.clone();
         let response_text = format!("mock response to: {}", last_user_message);
 
         let (stream, handle) = AssistantMessageEventStream::new();
@@ -74,7 +51,7 @@ impl LLMProvider for MockProvider {
                 content: vec![],
                 api: "mock".to_string(),
                 provider: "mock".to_string(),
-                model: model.clone(),
+                model: model_id.clone(),
                 response_id: None,
                 usage: Usage::default(),
                 stop_reason: StopReason::Stop,
@@ -93,7 +70,7 @@ impl LLMProvider for MockProvider {
                     }],
                     api: "mock".to_string(),
                     provider: "mock".to_string(),
-                    model: model.clone(),
+                    model: model_id.clone(),
                     response_id: None,
                     usage: Usage::default(),
                     stop_reason: StopReason::Stop,
@@ -114,7 +91,7 @@ impl LLMProvider for MockProvider {
                 }],
                 api: "mock".to_string(),
                 provider: "mock".to_string(),
-                model,
+                model: model_id,
                 response_id: None,
                 usage: Usage::default(),
                 stop_reason: StopReason::Stop,
@@ -129,9 +106,5 @@ impl LLMProvider for MockProvider {
         });
 
         stream
-    }
-
-    fn name(&self) -> &'static str {
-        "mock"
     }
 }

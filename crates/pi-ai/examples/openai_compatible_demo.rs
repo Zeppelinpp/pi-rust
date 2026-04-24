@@ -1,5 +1,5 @@
 use pi_ai::{
-    GenerateRequest, LLMProvider, Message, OpenAICompatibleConfig, OpenAICompatibleProvider,
+    ApiProvider, GenerateRequest, Message, OpenAICompatibleConfig, OpenAICompatibleProvider,
 };
 
 #[tokio::main]
