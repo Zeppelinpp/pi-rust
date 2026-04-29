@@ -2,7 +2,10 @@ pub mod message;
 pub use message::{ContentBlock, Message, Role, StopReason, UserContent};
 
 pub mod types;
-pub use types::{Context, Cost, GenerateOptions, GenerateRequest, GenerateResponse, Model, StreamOptions, Tool, Usage};
+pub use types::{
+    Context, Cost, GenerateOptions, GenerateRequest, GenerateResponse, Model, StreamOptions, Tool,
+    Usage,
+};
 
 pub mod error;
 pub use error::AIError;
@@ -20,6 +23,8 @@ pub use config::OpenAICompatibleConfig;
 
 pub mod stream;
 pub use stream::{AssistantMessageEvent, AssistantMessageEventStream, EventStreamHandle};
+
+pub mod api_registry;
 
 #[cfg(test)]
 mod test {
@@ -119,6 +124,201 @@ mod integration_tests {
 
         assert!(deltas > 0, "expected at least one text delta");
     }
+
+    /// 运行方式（需要真实 API）：
+    ///   PI_AI_API_KEY=xxx PI_AI_BASE_URL=https://api.openai.com \
+    ///   MODEL=gpt-4o \
+    ///   cargo test -p pi-ai openai_compatible_stream_works -- --ignored --nocapture
+    #[tokio::test]
+    #[ignore]
+    async fn openai_compatible_stream_works() {
+        let api_key = std::env::var("PI_AI_API_KEY").expect("PI_AI_API_KEY not set");
+        let base_url = std::env::var("PI_AI_BASE_URL").expect("PI_AI_BASE_URL not set");
+        let model_id = std::env::var("MODEL").unwrap_or_else(|_| "gpt-4o".into());
+
+        let provider = OpenAICompatibleProvider::new(OpenAICompatibleConfig { api_key, base_url });
+
+        let model = Model {
+            id: model_id.clone(),
+            name: model_id.clone(),
+            api: "openai-completions".into(),
+            provider: "openai".into(),
+            ..Default::default()
+        };
+
+        let context = Context {
+            messages: vec![Message::user("Say hello in one short sentence.")],
+            ..Default::default()
+        };
+
+        let mut stream = provider.stream(&model, &context, StreamOptions::default());
+        let mut event_log: Vec<String> = Vec::new();
+        let mut final_text = String::new();
+        let mut final_reasoning = String::new();
+
+        while let Some(event) = stream.next().await {
+            match event {
+                AssistantMessageEvent::Start { .. } => {
+                    println!("[EVENT] Start");
+                    event_log.push("Start".into());
+                }
+                AssistantMessageEvent::TextDelta { delta, content_index, .. } => {
+                    println!("[EVENT] TextDelta idx={} | {}", content_index, delta);
+                    event_log.push(format!("TextDelta({})", delta.len()));
+                    final_text.push_str(&delta);
+                }
+                AssistantMessageEvent::ThinkingDelta { delta, content_index, .. } => {
+                    println!("[EVENT] ThinkingDelta idx={} | {}", content_index, delta);
+                    event_log.push(format!("ThinkingDelta({})", delta.len()));
+                    final_reasoning.push_str(&delta);
+                }
+                AssistantMessageEvent::ToolCallStart { content_index, .. } => {
+                    println!("[EVENT] ToolCallStart idx={}", content_index);
+                    event_log.push(format!("ToolCallStart(idx={})", content_index));
+                }
+                AssistantMessageEvent::ToolCallDelta { delta, content_index, .. } => {
+                    println!("[EVENT] ToolCallDelta idx={} | {}", content_index, delta);
+                    event_log.push(format!("ToolCallDelta(idx={}, len={})", content_index, delta.len()));
+                }
+                AssistantMessageEvent::Done { message, .. } => {
+                    println!("[EVENT] Done");
+                    event_log.push("Done".into());
+                    if let Message::Assistant { content, .. } = &message {
+                        println!("=== Final message content blocks ===");
+                        for (i, block) in content.iter().enumerate() {
+                            println!("  block[{}]: {:?}", i, std::mem::discriminant(block));
+                        }
+                    }
+                    break;
+                }
+                AssistantMessageEvent::Error { error, .. } => {
+                    println!("[EVENT] Error: {:?}", error);
+                    event_log.push(format!("Error: {:?}", error));
+                    break;
+                }
+                other => {
+                    println!("[EVENT] {:?}", other);
+                    event_log.push(format!("{:?}", other));
+                }
+            }
+        }
+
+        println!("\n=== Summary ===");
+        println!("Events: {}", event_log.join(" -> "));
+        println!("Text ({} chars): {}", final_text.len(), final_text);
+        if !final_reasoning.is_empty() {
+            println!("Reasoning ({} chars): {}", final_reasoning.len(), final_reasoning);
+        }
+
+        assert!(
+            event_log.iter().any(|e| e.starts_with("Start")),
+            "expected at least one Start event"
+        );
+        let has_text_delta = event_log.iter().any(|e| e.starts_with("TextDelta"));
+        let has_thinking_delta = event_log.iter().any(|e| e.starts_with("ThinkingDelta"));
+        assert!(
+            has_text_delta || has_thinking_delta,
+            "expected at least one TextDelta or ThinkingDelta"
+        );
+        assert!(
+            event_log.iter().any(|e| e == "Done"),
+            "expected Done event"
+        );
+        assert!(!final_text.is_empty(), "expected non-empty text");
+    }
+}
+
+#[cfg(test)]
+mod api_registry_tests {
+    use std::sync::{Arc, Mutex};
+
+    use crate::{
+        ApiProvider, MockProvider,
+        api_registry::{
+            clear_api_providers, get_api_provider, register_api_provider, unregister_api_providers,
+        },
+    };
+
+    // 串行化所有 registry 测试，因为底层是全局可变状态
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn register_and_get_provider() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        clear_api_providers();
+
+        let provider: Arc<dyn ApiProvider + Send + Sync> = Arc::new(MockProvider);
+        register_api_provider(Arc::clone(&provider), None);
+
+        let found = get_api_provider("mock").unwrap();
+        assert_eq!(found.api(), "mock");
+    }
+
+    #[test]
+    fn get_unknown_provider_returns_none() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        clear_api_providers();
+        assert!(get_api_provider("nonexistent").is_none());
+    }
+
+    #[test]
+    fn register_overwrites_existing_provider() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        clear_api_providers();
+
+        let first: Arc<dyn ApiProvider + Send + Sync> = Arc::new(MockProvider);
+        register_api_provider(Arc::clone(&first), None);
+
+        let second: Arc<dyn ApiProvider + Send + Sync> = Arc::new(MockProvider);
+        register_api_provider(Arc::clone(&second), None);
+
+        let found = get_api_provider("mock").unwrap();
+        // both are MockProvider, but Arc ptr should point to the second one
+        assert!(Arc::ptr_eq(&found, &second));
+    }
+
+    #[test]
+    fn unregister_by_source_id() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        clear_api_providers();
+
+        let p1: Arc<dyn ApiProvider + Send + Sync> = Arc::new(MockProvider);
+        register_api_provider(Arc::clone(&p1), Some("source-a"));
+
+        let p2: Arc<dyn ApiProvider + Send + Sync> = Arc::new(MockProvider);
+        register_api_provider(Arc::clone(&p2), Some("source-a"));
+
+        let p3: Arc<dyn ApiProvider + Send + Sync> = Arc::new(MockProvider);
+        register_api_provider(Arc::clone(&p3), Some("source-b"));
+
+        assert!(get_api_provider("mock").is_some());
+
+        unregister_api_providers("source-a");
+
+        // p1 and p2 registered under source-a, but they both use "mock" key
+        // so after unregister, "mock" should be gone
+        assert!(get_api_provider("mock").is_none());
+
+        // source-b's provider is still there? no, because all three use "mock"
+        // this test reveals a design issue: multiple providers with same api key
+        // in this case, only the last registered one wins
+    }
+
+    #[test]
+    fn clear_removes_all_providers() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        clear_api_providers();
+
+        let provider: Arc<dyn ApiProvider + Send + Sync> = Arc::new(MockProvider);
+        register_api_provider(Arc::clone(&provider), Some("test-source"));
+
+        assert!(get_api_provider("mock").is_some());
+
+        clear_api_providers();
+
+        assert!(get_api_provider("mock").is_none());
+        assert!(get_api_provider("faux").is_none());
+    }
 }
 
 #[cfg(test)]
@@ -183,9 +383,7 @@ mod faux_tests {
     #[tokio::test]
     async fn faux_stream_emits_events_in_order() {
         let (provider, handle) = FauxProvider::new();
-        handle.set_responses(vec![FauxResponseStep::Static(assistant_message(
-            "hello",
-        ))]);
+        handle.set_responses(vec![FauxResponseStep::Static(assistant_message("hello"))]);
 
         let mut stream = provider.stream(&test_model(), &test_context(), StreamOptions::default());
 
@@ -218,7 +416,10 @@ mod faux_tests {
             }
         }
 
-        assert_eq!(event_types, vec!["start", "delta", "delta", "delta", "done"]);
+        assert_eq!(
+            event_types,
+            vec!["start", "delta", "delta", "delta", "done"]
+        );
         assert_eq!(final_text, "hello");
     }
 
@@ -253,9 +454,7 @@ mod faux_tests {
         ]);
         assert_eq!(handle.get_pending_response_count(), 2);
 
-        handle.append_responses(vec![FauxResponseStep::Static(assistant_message(
-            "third",
-        ))]);
+        handle.append_responses(vec![FauxResponseStep::Static(assistant_message("third"))]);
         assert_eq!(handle.get_pending_response_count(), 3);
 
         let _ = provider

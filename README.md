@@ -34,18 +34,23 @@ pi-rust/
 ## Progress
 
 ### pi-ai
-- [x] `LLMProvider` trait for pluggable providers
-- [x] Core types: `Message` (User/Assistant/ToolResult), `ContentBlock`, `UserContent`, `StopReason`, `GenerateRequest`, `GenerateResponse`, `GenerateOptions`, `Usage`/`Cost`, `Tool`, `Context`
+- [x] `ApiProvider` trait for pluggable providers
+- [x] Core types: `Message` (User/Assistant/ToolResult), `ContentBlock`, `UserContent`, `StopReason`, `GenerateRequest`, `GenerateResponse`, `GenerateOptions`, `Usage`/`Cost`, `Tool`, `Context`, `Model`, `StreamOptions`
+- [x] Streaming protocol: `AssistantMessageEvent`, `AssistantMessageEventStream`, `EventStreamHandle`
+- [x] `ApiRegistry` for global provider registration
 - [x] `MockProvider` for unit testing
-- [x] `OpenAICompatibleProvider` for OpenAI-compatible endpoints
+- [x] `FauxProvider` for programmable test responses
+- [x] `OpenAICompatibleProvider` with SSE streaming (text, reasoning, tool call deltas)
 - [x] Example usage of `OpenAICompatibleProvider`
-- [x] Streaming responses
-- [ ] Tool calling
-- [ ] Automatic model discovery and capability detection
+- [ ] Tool execution and validation (blocked on pi-agent-core)
+- [ ] `transform-messages` for cross-provider normalization
+- [ ] Model catalog and `calculateCost`
+- [ ] `env-api-keys` resolution
 - [ ] Cross-provider handoffs mid-conversation
 - [ ] OAuth support for subscription-based services
 
 ### pi-agent-core
+- [ ] Core domain types (`AgentEvent`, `AgentMessage`, `AgentTool`, `AgentState`, `AgentLoopConfig`)
 - [ ] Event-driven agent lifecycle
 - [ ] Tool execution with validation and error handling
 - [ ] State management and message history

@@ -11,7 +11,7 @@ A Rust implementation of the [pi-mono](https://github.com/badlogic/pi-mono) AI a
 # Design & Implementation Alignment
 - **Every design and code change MUST align with the original repository.**
 - Before proposing any implementation, reference the original pi-mono design, behavior, and spec.
-- Source code path: `/tmp/pi-mono/`
+- Source code path: `/Users/ruipu/Documents/Knowledge/pi-mono`
 - Search the original repo and relevant spec docs (`docs/pi-agent-core-spec.md`, etc.) when behavior is unclear.
 
 # Code Quality & Refactoring
