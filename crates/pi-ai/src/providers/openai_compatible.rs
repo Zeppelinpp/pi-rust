@@ -359,9 +359,9 @@ impl ApiProvider for OpenAICompatibleProvider {
                 return;
             }
 
-            let byte_stream = resp.bytes_stream().map(|result| {
-                result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
-            });
+            let byte_stream = resp
+                .bytes_stream()
+                .map(|result| result.map_err(|e| std::io::Error::other(e)));
             let reader = StreamReader::new(byte_stream);
             let mut lines = reader.lines();
 
@@ -442,56 +442,56 @@ impl ApiProvider for OpenAICompatibleProvider {
                     Err(_) => continue,
                 };
 
-                if let Some(choice) = chunk.choices.get(0) {
-                    if let Some(text) = &choice.delta.content {
-                        if !text.is_empty() {
-                            accumulated_text.push_str(text);
+                if let Some(choice) = chunk.choices.first() {
+                    if let Some(text) = &choice.delta.content
+                        && !text.is_empty()
+                    {
+                        accumulated_text.push_str(text);
 
-                            let current_partial = build_partial_message(
-                                &accumulated_text,
-                                &accumulated_reasoning,
-                                &partial_tool_calls,
-                                &model_id,
-                            );
+                        let current_partial = build_partial_message(
+                            &accumulated_text,
+                            &accumulated_reasoning,
+                            &partial_tool_calls,
+                            &model_id,
+                        );
 
-                            let text_idx = if accumulated_reasoning.is_empty() {
-                                0
-                            } else {
-                                1
-                            };
-                            handle.push(AssistantMessageEvent::TextDelta {
-                                content_index: text_idx,
-                                delta: text.clone(),
-                                partial: current_partial,
-                            });
-                        }
+                        let text_idx = if accumulated_reasoning.is_empty() {
+                            0
+                        } else {
+                            1
+                        };
+                        handle.push(AssistantMessageEvent::TextDelta {
+                            content_index: text_idx,
+                            delta: text.clone(),
+                            partial: current_partial,
+                        });
                     }
 
-                    if let Some(reasoning) = &choice.delta.reasoning_content {
-                        if !reasoning.is_empty() {
-                            let is_first = !has_thinking_started;
-                            accumulated_reasoning.push_str(reasoning);
-                            has_thinking_started = true;
+                    if let Some(reasoning) = &choice.delta.reasoning_content
+                        && !reasoning.is_empty()
+                    {
+                        let is_first = !has_thinking_started;
+                        accumulated_reasoning.push_str(reasoning);
+                        has_thinking_started = true;
 
-                            let current_partial = build_partial_message(
-                                &accumulated_text,
-                                &accumulated_reasoning,
-                                &partial_tool_calls,
-                                &model_id,
-                            );
+                        let current_partial = build_partial_message(
+                            &accumulated_text,
+                            &accumulated_reasoning,
+                            &partial_tool_calls,
+                            &model_id,
+                        );
 
-                            if is_first {
-                                handle.push(AssistantMessageEvent::ThinkingStart {
-                                    content_index: 0,
-                                    partial: current_partial.clone(),
-                                });
-                            }
-                            handle.push(AssistantMessageEvent::ThinkingDelta {
+                        if is_first {
+                            handle.push(AssistantMessageEvent::ThinkingStart {
                                 content_index: 0,
-                                delta: reasoning.clone(),
-                                partial: current_partial,
+                                partial: current_partial.clone(),
                             });
                         }
+                        handle.push(AssistantMessageEvent::ThinkingDelta {
+                            content_index: 0,
+                            delta: reasoning.clone(),
+                            partial: current_partial,
+                        });
                     }
 
                     if let Some(tool_calls) = &choice.delta.tool_calls {
@@ -536,14 +536,14 @@ impl ApiProvider for OpenAICompatibleProvider {
                                 });
                             }
 
-                            if let Some(func) = &tc.function {
-                                if let Some(args) = &func.arguments {
-                                    handle.push(AssistantMessageEvent::ToolCallDelta {
-                                        content_index: tool_base + index,
-                                        delta: args.clone(),
-                                        partial: current_partial,
-                                    });
-                                }
+                            if let Some(func) = &tc.function
+                                && let Some(args) = &func.arguments
+                            {
+                                handle.push(AssistantMessageEvent::ToolCallDelta {
+                                    content_index: tool_base + index,
+                                    delta: args.clone(),
+                                    partial: current_partial,
+                                });
                             }
                         }
                     }

@@ -1,5 +1,5 @@
 pub mod message;
-pub use message::{ContentBlock, Message, Role, StopReason, UserContent};
+pub use message::{ContentBlock, Message, Role, StopReason, UserContent, now_ms};
 
 pub mod types;
 pub use types::{
@@ -162,12 +162,20 @@ mod integration_tests {
                     println!("[EVENT] Start");
                     event_log.push("Start".into());
                 }
-                AssistantMessageEvent::TextDelta { delta, content_index, .. } => {
+                AssistantMessageEvent::TextDelta {
+                    delta,
+                    content_index,
+                    ..
+                } => {
                     println!("[EVENT] TextDelta idx={} | {}", content_index, delta);
                     event_log.push(format!("TextDelta({})", delta.len()));
                     final_text.push_str(&delta);
                 }
-                AssistantMessageEvent::ThinkingDelta { delta, content_index, .. } => {
+                AssistantMessageEvent::ThinkingDelta {
+                    delta,
+                    content_index,
+                    ..
+                } => {
                     println!("[EVENT] ThinkingDelta idx={} | {}", content_index, delta);
                     event_log.push(format!("ThinkingDelta({})", delta.len()));
                     final_reasoning.push_str(&delta);
@@ -176,9 +184,17 @@ mod integration_tests {
                     println!("[EVENT] ToolCallStart idx={}", content_index);
                     event_log.push(format!("ToolCallStart(idx={})", content_index));
                 }
-                AssistantMessageEvent::ToolCallDelta { delta, content_index, .. } => {
+                AssistantMessageEvent::ToolCallDelta {
+                    delta,
+                    content_index,
+                    ..
+                } => {
                     println!("[EVENT] ToolCallDelta idx={} | {}", content_index, delta);
-                    event_log.push(format!("ToolCallDelta(idx={}, len={})", content_index, delta.len()));
+                    event_log.push(format!(
+                        "ToolCallDelta(idx={}, len={})",
+                        content_index,
+                        delta.len()
+                    ));
                 }
                 AssistantMessageEvent::Done { message, .. } => {
                     println!("[EVENT] Done");
@@ -207,7 +223,11 @@ mod integration_tests {
         println!("Events: {}", event_log.join(" -> "));
         println!("Text ({} chars): {}", final_text.len(), final_text);
         if !final_reasoning.is_empty() {
-            println!("Reasoning ({} chars): {}", final_reasoning.len(), final_reasoning);
+            println!(
+                "Reasoning ({} chars): {}",
+                final_reasoning.len(),
+                final_reasoning
+            );
         }
 
         assert!(
@@ -220,10 +240,7 @@ mod integration_tests {
             has_text_delta || has_thinking_delta,
             "expected at least one TextDelta or ThinkingDelta"
         );
-        assert!(
-            event_log.iter().any(|e| e == "Done"),
-            "expected Done event"
-        );
+        assert!(event_log.iter().any(|e| e == "Done"), "expected Done event");
         assert!(!final_text.is_empty(), "expected non-empty text");
     }
 }
