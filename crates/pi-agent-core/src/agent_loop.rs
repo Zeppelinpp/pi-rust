@@ -10,6 +10,9 @@ use crate::types::{
     AgentToolResult, BeforeToolCallContext, StreamFn, ToolExecutionMode,
 };
 
+use futures::future::{BoxFuture, FutureExt};
+use tokio::sync::mpsc;
+
 pub async fn stream_assistant_response(
     context: &mut AgentContext,
     config: &dyn AgentLoopConfig,
@@ -90,29 +93,22 @@ pub async fn stream_assistant_response(
                 if added_partial {
                     if let Some(last) = context.messages.last_mut() {
                         *last = AgentMessage::from(message.clone());
-                    } else {
-                        context.messages.push(AgentMessage::from(message.clone()));
                     }
-                    if !added_partial {
-                        emit(AgentEvent::MessageStart {
-                            message: AgentMessage::from(message.clone()),
-                        });
-                    }
-                    emit(AgentEvent::MessageEnd {
+                } else {
+                    context.messages.push(AgentMessage::from(message.clone()));
+                    emit(AgentEvent::MessageStart {
                         message: AgentMessage::from(message.clone()),
                     });
-                    return message;
                 }
+                emit(AgentEvent::MessageEnd {
+                    message: AgentMessage::from(message.clone()),
+                });
+                return message;
             }
         }
     }
 
     if let Some(message) = partial_message {
-        if !added_partial {
-            emit(AgentEvent::MessageStart {
-                message: AgentMessage::from(message.clone()),
-            });
-        }
         emit(AgentEvent::MessageEnd {
             message: AgentMessage::from(message.clone()),
         });
@@ -399,6 +395,11 @@ async fn prepare_tool_call<'a>(
     };
 
     let prepared_args = tool.prepare_arguments(args.clone());
+    // TODO: validate_tool_arguments(tool, &prepared_args) here.
+    // TS reference: validateToolArguments coerces types (e.g. "42" -> 42) and
+    // checks the JSON schema, returning an Immediate error outcome on failure
+    // so the LLM can retry. Pick a JSON Schema crate (jsonschema, valico) when
+    // a real test case demands it.
     let before_result = config
         .before_tool_call(
             BeforeToolCallContext {
@@ -431,7 +432,7 @@ async fn prepare_tool_call<'a>(
 }
 
 async fn execute_tool_calls(
-    context: &mut AgentContext,
+    context: &AgentContext,
     assistant_message: &Message,
     config: &dyn AgentLoopConfig,
     signal: Option<&watch::Receiver<bool>>,
@@ -470,13 +471,20 @@ async fn execute_tool_calls(
         )
         .await
     } else {
-        // TODO: parallel version
-        todo!()
+        execute_tool_calls_parallel(
+            context,
+            assistant_message,
+            &tool_calls,
+            config,
+            signal,
+            emit,
+        )
+        .await
     }
 }
 
 async fn execute_tool_calls_sequential(
-    context: &mut AgentContext,
+    context: &AgentContext,
     assistant_message: &Message,
     tool_calls: &[&ContentBlock],
     config: &dyn AgentLoopConfig,
@@ -528,6 +536,108 @@ async fn execute_tool_calls_sequential(
             finalized_calls.push(finalized);
             messages.push(tool_result_message);
         }
+    }
+
+    ExecutedToolCallBatch {
+        messages,
+        terminate: should_terminate_tool_batch(&finalized_calls),
+    }
+}
+
+async fn execute_tool_calls_parallel(
+    context: &AgentContext,
+    assistant_message: &Message,
+    tool_calls: &[&ContentBlock],
+    config: &dyn AgentLoopConfig,
+    signal: Option<&watch::Receiver<bool>>,
+    emit: &mut dyn FnMut(AgentEvent),
+) -> ExecutedToolCallBatch {
+    let (tx, mut rx) = mpsc::unbounded_channel::<AgentEvent>();
+    let mut entries: Vec<BoxFuture<'_, FinalizedToolCallOutcome>> = Vec::new();
+
+    // Sequential prepare tool call
+    for &tool_call in tool_calls {
+        if let ContentBlock::ToolCall {
+            id,
+            name,
+            arguments,
+            ..
+        } = tool_call
+        {
+            emit(AgentEvent::ToolExecutionStart {
+                tool_call_id: id.clone(),
+                tool_name: name.clone(),
+                args: arguments.clone(),
+            });
+            let preparation =
+                prepare_tool_call(context, assistant_message, tool_call, config, signal).await;
+            match preparation {
+                ToolCallPreparation::Immediate { result, is_error } => {
+                    emit(AgentEvent::ToolExecutionEnd {
+                        tool_call_id: id.clone(),
+                        tool_name: name.clone(),
+                        result: result.details.clone(),
+                        is_error,
+                    });
+                    entries.push(
+                        async move {
+                            FinalizedToolCallOutcome {
+                                tool_call: tool_call.clone(),
+                                result,
+                                is_error,
+                            }
+                        }
+                        .boxed(),
+                    )
+                }
+                ToolCallPreparation::Prepared { tool, args } => {
+                    let tx = tx.clone();
+                    entries.push(
+                        async move {
+                            let executed =
+                                execute_prepared_tool_call(tool, &id.clone(), &args, signal).await;
+                            let finalized = finalize_executed_tool_call(
+                                context,
+                                assistant_message,
+                                tool_call,
+                                args,
+                                executed,
+                                config,
+                                signal,
+                            )
+                            .await;
+                            tx.send(AgentEvent::ToolExecutionEnd {
+                                tool_call_id: id.clone(),
+                                tool_name: name.clone(),
+                                result: finalized.result.details.clone(),
+                                is_error: finalized.is_error,
+                            });
+                            finalized
+                        }
+                        .boxed(),
+                    )
+                }
+            };
+        }
+    }
+
+    drop(tx);
+
+    // Parallel + Forwarder
+    let join_fut = futures::future::join_all(entries);
+    let forwarder = async {
+        while let Some(event) = rx.recv().await {
+            emit(event);
+        }
+    };
+    let (finalized_calls, _) = tokio::join!(join_fut, forwarder);
+
+    // Emit result in order
+    let mut messages: Vec<AgentMessage> = Vec::new();
+    for finalized in &finalized_calls {
+        let msg = create_tool_result_message(finalized);
+        emit_tool_result_message(&msg, emit);
+        messages.push(msg);
     }
 
     ExecutedToolCallBatch {
